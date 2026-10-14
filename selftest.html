@@ -9,7 +9,7 @@
 <script>
 (async () => {
   const r = { protocol: location.protocol, pdfjsVer: (typeof pdfjsLib !== 'undefined') };
-  // 1) fetch local font (used by app.js loadFont)
+  // 1) fetch local font (fallback path in app.js loadFont)
   try {
     const res = await fetch('lib/Sarabun-Regular.ttf');
     r.fontFetch = res.ok ? 'OK ' + (await res.arrayBuffer()).byteLength + 'B' : 'HTTP ' + res.status;
@@ -37,6 +37,35 @@
     const f = await d2.embedFont(buf.buffer);
     r.thaiFont = 'OK width=' + f.widthOfTextAtSize('ทดสอบ', 14).toFixed(1);
   } catch (e) { r.thaiFont = 'FAIL: ' + (e && e.message); }
+  // 4) @font-face inject + CSS font ready (WYSIWYG preview)
+  try {
+    const st = document.createElement('style');
+    st.textContent = `@font-face{font-family:'SarabunEmb';src:url(data:font/ttf;base64,${SARABUN_B64}) format('truetype');}`;
+    document.head.appendChild(st);
+    await document.fonts.load('16px SarabunEmb');
+    r.previewFont = document.fonts.check('16px SarabunEmb') ? 'OK' : 'NOT-READY';
+  } catch (e) { r.previewFont = 'FAIL: ' + (e && e.message); }
+  // 5) IndexedDB autosave round-trip
+  try {
+    const open = () => new Promise((res, rej) => { const q = indexedDB.open('pdfquickedit_test', 1); q.onupgradeneeded = () => q.result.createObjectStore('s'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+    const db = await open();
+    const put = (k, v) => new Promise((res, rej) => { const tx = db.transaction('s', 'readwrite'); tx.objectStore('s').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
+    const get = (k) => new Promise((res, rej) => { const tx = db.transaction('s', 'readonly'); const rq = tx.objectStore('s').get(k); rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
+    await put('k', { a: 1, buf: new Uint8Array([1, 2, 3]) });
+    const g = await get('k');
+    r.indexedDB = (g && g.a === 1 && g.buf.length === 3) ? 'OK' : 'BAD';
+  } catch (e) { r.indexedDB = 'FAIL: ' + (e && e.message); }
+  // 6) page ops: rotate + delete round-trip via pdf-lib
+  try {
+    const d = await PDFLib.PDFDocument.create();
+    for (let i = 0; i < 3; i++) d.addPage([200, 200]);
+    const pages = d.getPages();
+    pages[0].setRotation(PDFLib.degrees(90));
+    d.removePage(1);
+    const out = await d.save();
+    const back = await PDFLib.PDFDocument.load(out);
+    r.pageOps = 'OK pages=' + back.getPageCount() + ' rot0=' + back.getPages()[0].getRotation().angle;
+  } catch (e) { r.pageOps = 'FAIL: ' + (e && e.message); }
   document.getElementById('RESULT').textContent = JSON.stringify(r, null, 1);
 })();
 </script>

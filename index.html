@@ -9,31 +9,49 @@
 <body data-mode="find">
 
 <header id="topbar">
-  <div class="brand">✂ PDF Quick Edit</div>
+  <div class="brand">✂ PDF Quick Edit <span class="ver">v0.2</span></div>
   <button id="openBtn" class="btn">เปิดไฟล์ PDF</button>
   <input type="file" id="fileInput" accept=".pdf,application/pdf" hidden>
   <span id="fileName" class="filename"></span>
   <div class="spacer"></div>
   <div id="docControls" class="controls" hidden>
-    <button id="prevPage" class="btn small" title="หน้าก่อนหน้า">‹</button>
+    <button id="prevPage" class="btn small" title="หน้าก่อนหน้า (←)">‹</button>
     <span id="pageLabel" class="pagelabel">–/–</span>
-    <button id="nextPage" class="btn small" title="หน้าถัดไป">›</button>
+    <button id="nextPage" class="btn small" title="หน้าถัดไป (→)">›</button>
     <span class="sep"></span>
-    <button id="zoomOut" class="btn small" title="ย่อ">−</button>
+    <button id="zoomOut" class="btn small" title="ย่อ (−)">−</button>
     <span id="zoomLabel" class="pagelabel">100%</span>
-    <button id="zoomIn" class="btn small" title="ขยาย">+</button>
+    <button id="zoomIn" class="btn small" title="ขยาย (+)">+</button>
+    <button id="fitWidth" class="btn small" title="พอดีความกว้าง">↔</button>
+    <button id="fitPage" class="btn small" title="พอดีทั้งหน้า">⤢</button>
     <span class="sep"></span>
-    <button id="rotateBtn" class="btn small" title="หมุนหน้า 90°">หมุน</button>
+    <button id="viewRotate" class="btn small" title="หมุนมุมมองชั่วคราว">⟳</button>
+    <span class="sep"></span>
+    <button id="undoBtn" class="btn small" title="ย้อนกลับ (Ctrl+Z)">↶</button>
+    <button id="redoBtn" class="btn small" title="ทำซ้ำ (Ctrl+Y)">↷</button>
+    <span class="sep"></span>
+    <button id="previewBtn" class="btn small" title="ดูตัวอย่างผลลัพธ์จริง (P)">👁 ดูผลจริง</button>
   </div>
   <button id="saveBtn" class="btn primary" disabled>ดาวน์โหลด PDF ใหม่</button>
 </header>
 
 <div id="layout">
   <aside id="sidebar">
+
+    <section class="panel" id="restorePanel" hidden>
+      <h3>↺ มีงานค้างอยู่</h3>
+      <div id="restoreInfo" class="hint"></div>
+      <div class="row">
+        <button id="restoreBtn" class="btn primary">กู้คืนงาน</button>
+        <button id="discardBtn" class="btn">ทิ้ง</button>
+      </div>
+    </section>
+
     <section class="panel">
       <h3>โหมดการแก้ไข</h3>
-      <label class="radio"><input type="radio" name="mode" value="find" checked> คลิก/ค้นหาข้อความ</label>
-      <label class="radio"><input type="radio" name="mode" value="draw"> วาดกรอบเอง</label>
+      <label class="radio"><input type="radio" name="mode" value="find" checked> <span>คลิก/ค้นหาข้อความ</span></label>
+      <label class="radio"><input type="radio" name="mode" value="draw"> <span>วาดกรอบเอง</span></label>
+      <label class="radio"><input type="radio" name="mode" value="edit"> <span>เลือก/ย้ายกล่องที่แก้แล้ว</span></label>
       <p class="hint" id="modeHint"></p>
     </section>
 
@@ -44,20 +62,74 @@
     </section>
 
     <section class="panel" id="editPanel">
-      <h3>ข้อความใหม่</h3>
+      <h3 id="editPanelTitle">ข้อความใหม่</h3>
       <div id="selectionInfo" class="hint"></div>
-      <textarea id="newText" rows="3" placeholder="พิมพ์ข้อความใหม่ที่จะวางทับ (ขึ้นบรรทัดใหม่ได้ด้วย Enter)"></textarea>
+      <textarea id="newText" rows="3" placeholder="พิมพ์ข้อความใหม่ (Enter = ขึ้นบรรทัดใหม่)"></textarea>
+
+      <div class="ctlRow">
+        <span class="ctlLabel">ขนาดตัวอักษร</span>
+        <label class="chk"><input type="checkbox" id="sizeAuto" checked> อัตโนมัติ</label>
+      </div>
+      <div class="ctlRow" id="sizeRow" hidden>
+        <input type="range" id="sizeRange" min="4" max="72" step="0.5" value="12">
+        <input type="number" id="sizeNum" min="4" max="72" step="0.5" value="12">
+      </div>
+
+      <div class="ctlRow">
+        <span class="ctlLabel">จัดแนวนอน</span>
+        <div class="seg" id="alignSeg">
+          <button data-align="left" class="on" title="ชิดซ้าย">ซ้าย</button>
+          <button data-align="center" title="กึ่งกลาง">กลาง</button>
+          <button data-align="right" title="ชิดขวา">ขวา</button>
+        </div>
+      </div>
+
+      <div class="ctlRow">
+        <span class="ctlLabel">สีตัวอักษร</span>
+        <input type="color" id="textColor" value="#000000">
+      </div>
+
+      <div class="ctlRow">
+        <span class="ctlLabel">พื้นหลัง (กลบทับ)</span>
+        <select id="fillMode">
+          <option value="white">กลบด้วยสีขาว</option>
+          <option value="none">ไม่กลบ (ทับอย่างเดียว)</option>
+          <option value="custom">กลบด้วยสีที่เลือก</option>
+        </select>
+        <input type="color" id="fillColor" value="#ffffff" hidden>
+      </div>
+
       <div class="row">
         <button id="addEditBtn" class="btn primary" disabled>เพิ่มการแก้ไข</button>
         <button id="cancelSelBtn" class="btn">ยกเลิก</button>
+      </div>
+      <div class="row" id="selectedRow" hidden>
+        <button id="deleteEditBtn" class="btn danger">ลบกล่องนี้</button>
+        <button id="dupEditBtn" class="btn">ทำสำเนา</button>
       </div>
     </section>
 
     <section class="panel" id="editsPanel">
       <h3>รายการแก้ไข (<span id="editCount">0</span>)</h3>
       <ul id="editList"></ul>
-      <p class="hint" id="editsHint">ไฟล์ต้นฉบับจะไม่ถูกแตะ — ดาวน์โหลดเป็นไฟล์ใหม่ตอนจบ</p>
+      <p class="hint">ไฟล์ต้นฉบับไม่ถูกแตะ — กด "ดาวน์โหลด PDF ใหม่" เมื่อพอใจแล้ว</p>
     </section>
+
+    <section class="panel" id="pagesPanel">
+      <h3>หน้า (<span id="pageCount">0</span>)</h3>
+      <ul id="pagesList"></ul>
+    </section>
+
+    <section class="panel" id="sessionPanel">
+      <h3>งานของฉัน</h3>
+      <p class="hint" id="saveStatus">ยังไม่มีการบันทึก</p>
+      <div class="row">
+        <button id="exportSessionBtn" class="btn">บันทึกงาน (.json)</button>
+        <button id="importSessionBtn" class="btn">เปิดงาน (.json)</button>
+      </div>
+      <input type="file" id="sessionInput" accept=".json,application/json" hidden>
+    </section>
+
   </aside>
 
   <main id="viewer">
@@ -65,17 +137,20 @@
       <div class="empty-box">
         <div class="empty-icon">📄</div>
         <p>ลากไฟล์ PDF มาวางที่นี่<br>หรือกดปุ่ม <b>เปิดไฟล์ PDF</b></p>
-        <p class="hint">ทำงานออฟไลน์ 100% — ไฟล์ไม่ออกจากเครื่อง</p>
+        <p class="hint">ทำงานออฟไลน์ 100% — ไฟล์ไม่ออกจากเครื่อง<br>งานที่ทำค้างไว้ถูกบันทึกอัตโนมัติ กู้คืนได้</p>
       </div>
     </div>
     <div id="canvasWrap" hidden>
       <canvas id="pdfCanvas"></canvas>
       <div id="textLayer"></div>
+      <div id="wysLayer"></div>
       <div id="drawLayer"></div>
       <div id="editOverlay"></div>
     </div>
   </main>
 </div>
+
+<div id="toast"></div>
 
 <script src="lib/pdf.min.js"></script>
 <script src="lib/fontkit.umd.min.js"></script>
