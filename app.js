@@ -30,8 +30,21 @@ let viewportNow = null;
 
 /* ================= font ================= */
 
+function b64ToArrayBuffer(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
 async function loadFont() {
   if (state.fontBytes) return state.fontBytes;
+  // ฝัง base64 มาใน lib/sarabun-font.js — ใช้ไฟล์นี้เป็นหลักเพราะ
+  // เปิดแบบดับเบิลคลิก (file://) เบราว์เซอร์ห้าม fetch() ไฟล์ในเครื่อง
+  if (typeof SARABUN_B64 === 'string' && SARABUN_B64.length > 0) {
+    state.fontBytes = b64ToArrayBuffer(SARABUN_B64);
+    return state.fontBytes;
+  }
   const res = await fetch('lib/Sarabun-Regular.ttf');
   if (!res.ok) throw new Error('โหลดฟอนต์ Sarabun ไม่สำเร็จ');
   state.fontBytes = await res.arrayBuffer();

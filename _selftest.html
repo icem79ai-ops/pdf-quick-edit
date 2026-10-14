@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>test</title></head>
+<body>
+<pre id="RESULT">running…</pre>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/fontkit.umd.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
+<script src="lib/sarabun-font.js"></script>
+<script>
+(async () => {
+  const r = { protocol: location.protocol, pdfjsVer: (typeof pdfjsLib !== 'undefined') };
+  // 1) fetch local font (used by app.js loadFont)
+  try {
+    const res = await fetch('lib/Sarabun-Regular.ttf');
+    r.fontFetch = res.ok ? 'OK ' + (await res.arrayBuffer()).byteLength + 'B' : 'HTTP ' + res.status;
+  } catch (e) { r.fontFetch = 'FETCH-FAIL: ' + e.message; }
+  // 2) pdf.js worker + open a PDF built in-page by pdf-lib
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+    const doc = await PDFLib.PDFDocument.create();
+    const p = doc.addPage([300, 200]);
+    p.drawText('hello', { x: 20, y: 100, size: 20, font: await doc.embedFont(PDFLib.StandardFonts.Helvetica) });
+    const bytes = await doc.save();
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(bytes).slice() }).promise;
+    r.pdfjsOpen = 'OK pages=' + pdf.numPages;
+    const pg = await pdf.getPage(1);
+    const tc = await pg.getTextContent();
+    r.textExtract = tc.items.map(i => i.str).join('').trim();
+  } catch (e) { r.pdfjsOpen = 'FAIL: ' + (e && e.message); }
+  // 3) embed Thai font from embedded base64 (the real app path) + draw
+  try {
+    const bin = atob(SARABUN_B64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const d2 = await PDFLib.PDFDocument.create();
+    d2.registerFontkit(fontkit);
+    const f = await d2.embedFont(buf.buffer);
+    r.thaiFont = 'OK width=' + f.widthOfTextAtSize('ทดสอบ', 14).toFixed(1);
+  } catch (e) { r.thaiFont = 'FAIL: ' + (e && e.message); }
+  document.getElementById('RESULT').textContent = JSON.stringify(r, null, 1);
+})();
+</script>
+</body></html>
