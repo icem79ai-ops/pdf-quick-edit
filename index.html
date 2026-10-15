@@ -85,6 +85,19 @@
       </div>
 
       <div class="ctlRow">
+        <span class="ctlLabel">แบบอักษร</span>
+        <select id="fontFamily"></select>
+      </div>
+
+      <div class="ctlRow">
+        <span class="ctlLabel">ลักษณะ</span>
+        <div class="seg" id="styleSeg">
+          <button data-style="bold" title="ตัวหนา"><b>B</b></button>
+          <button data-style="italic" title="ตัวเอียง"><i>I</i></button>
+        </div>
+      </div>
+
+      <div class="ctlRow">
         <span class="ctlLabel">สีตัวอักษร</span>
         <input type="color" id="textColor" value="#000000">
       </div>
@@ -155,7 +168,7 @@
 <script src="lib/pdf.min.js"></script>
 <script src="lib/fontkit.umd.min.js"></script>
 <script src="lib/pdf-lib.min.js"></script>
-<script src="lib/sarabun-font.js"></script>
+<script src="lib/fonts.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -14,7 +14,6 @@ const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 const LINE_H = 1.3;
 const PAD = 2;
-const FONT_FAMILY = 'SarabunEmb';
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 function b64ToBytes(b64) { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
@@ -54,7 +53,7 @@ const state = {
   edits: [],            // {id,page,x,y,w,h,text,size(null=auto),align,color,fillMode,fillColor}
   pending: null,        // {page,x,y,w,h}
   selectedId: null,
-  lastProps: { size: null, align: 'left', color: '#000000', fillMode: 'white', fillColor: '#ffffff' },
+  lastProps: { size: null, align: 'left', color: '#000000', fillMode: 'white', fillColor: '#ffffff', font: 'sarabun', bold: false, italic: false },
   pageOps: { rotate: {}, deleted: [] },
   history: [], hIdx: -1,
   font: null,
@@ -62,36 +61,61 @@ const state = {
   baseName: 'document'
 };
 
-/* ---------------- font ---------------- */
-function injectFontFace() {
-  if (!window.SARABUN_B64) return;
+/* ---------------- fonts (Sarabun / Kanit, มีตัวหนา/เอียง) ---------------- */
+function fonts() { return (window.PQE_FONTS && window.PQE_FONTS.length) ? window.PQE_FONTS : [{ id: 'sarabun', label: 'Sarabun', name: 'PQE_Sarabun', css: "'PQE_Sarabun',sans-serif", v: { normal: window.SARABUN_B64 || '' } }]; }
+function famById(id) { return fonts().find((f) => f.id === id) || fonts()[0]; }
+function faceName(fam) { return fam.name || ('PQE_' + fam.id); }
+function famCss(fam) { return "'" + faceName(fam) + "'," + (fam.id === 'kanit' ? 'Kanit,' : 'Sarabun,') + 'sans-serif'; }
+function variantKey(fam, bold, italic) {
+  if (bold && italic && fam.v.bolditalic) return 'bolditalic';
+  if (bold && fam.v.bold) return 'bold';
+  if (italic && fam.v.italic) return 'italic';
+  return 'normal';
+}
+function hasVariant(fam, bold, italic) { return !!fam.v[variantKey(fam, bold, italic)]; }
+
+function injectFontFaces() {
   try {
+    let css = '';
+    for (const fam of fonts()) {
+      const face = faceName(fam);
+      for (const [vk, b64] of Object.entries(fam.v)) {
+        if (!b64) continue;
+        const weight = vk.indexOf('bold') >= 0 ? 700 : 400;
+        const style = vk.indexOf('italic') >= 0 ? 'italic' : 'normal';
+        css += `@font-face{font-family:'${face}';src:url(data:font/ttf;base64,${b64}) format('truetype');font-weight:${weight};font-style:${style};font-display:block;}`;
+      }
+    }
     const st = document.createElement('style');
-    st.textContent = `@font-face{font-family:'${FONT_FAMILY}';src:url(data:font/ttf;base64,${window.SARABUN_B64}) format('truetype');font-weight:400;font-style:normal;font-display:block;}`;
+    st.textContent = css;
     document.head.appendChild(st);
-    if (document.fonts && document.fonts.load) document.fonts.load(`16px ${FONT_FAMILY}`).catch(() => {});
   } catch (e) { console.warn('font-face', e); }
 }
 
-async function loadFont() {
-  if (state.font) return state.font;
-  let bytes = null;
-  if (window.SARABUN_B64) bytes = b64ToBytes(window.SARABUN_B64);
-  else { const r = await fetch('lib/Sarabun-Regular.ttf'); bytes = new Uint8Array(await r.arrayBuffer()); }
-  state.font = await state.pdfDocLib.embedFont(bytes, { subset: true });
-  return state.font;
+// embed ฟอนต์ที่เลือกไว้ใช้ตอน export (cache ต่อการ save 1 ครั้ง)
+async function embedVariant(doc, cache, famId, vk) {
+  const key = famId + ':' + vk;
+  if (cache[key]) return cache[key];
+  const fam = famById(famId);
+  const b64 = fam.v[vk] || fam.v.normal;
+  const font = await doc.embedFont(b64ToBytes(b64), { subset: true });
+  cache[key] = font;
+  return font;
 }
 
 /* ---------------- measure + fit ---------------- */
 let measureCtx = null;
-function measureText(text, sizePt) {
-  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
-  measureCtx.font = sizePt + 'px ' + FONT_FAMILY + ', sans-serif';
-  return measureCtx.measureText(text).width;
+function canvasMeasure(fam, bold, italic) {
+  const css = famCss(fam), w = bold ? '700 ' : '400 ', it = italic ? 'italic ' : '';
+  return (line, sizePt) => {
+    if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+    measureCtx.font = `${it}${w}${sizePt}px ${css}`;
+    return measureCtx.measureText(line).width;
+  };
 }
 
 // คืนขนาด (PDF points). manual != null → ใช้ค่าผู้ใช้. เริ่มจาก "พอดีความสูง" แล้วย่อเฉพาะเมื่อล้นความกว้าง
-function fitSize(text, boxW, boxH, manual) {
+function fitSize(text, boxW, boxH, manual, measure) {
   if (manual != null) return manual;
   const maxW = Math.max(boxW - PAD * 2, 3);
   const maxH = Math.max(boxH - PAD * 2, 3);
@@ -101,7 +125,7 @@ function fitSize(text, boxW, boxH, manual) {
   size = Math.max(size, 3);
   for (let i = 0; i < 500; i++) {
     let over = false;
-    for (const l of lines) { if (l && measureText(l, size) > maxW) { over = true; break; } }
+    for (const l of lines) { if (l && measure(l, size) > maxW) { over = true; break; } }
     if (!over) break;
     size -= 0.25; if (size <= 3) { size = 3; break; }
   }
@@ -212,10 +236,14 @@ function renderWys() {
       layer.appendChild(box);
       continue;
     }
-    const size = fitSize(e.text, e.w, e.h, e.size);
+    const fam = famById(e.font);
+    const size = fitSize(e.text, e.w, e.h, e.size, canvasMeasure(fam, e.bold, e.italic));
     const txt = document.createElement('div');
     txt.className = 'wys-text';
     txt.style.color = e.color;
+    txt.style.fontFamily = famCss(fam);
+    txt.style.fontWeight = e.bold ? '700' : '400';
+    txt.style.fontStyle = e.italic ? 'italic' : 'normal';
     txt.style.fontSize = (size * state.scale) + 'px';
     txt.style.lineHeight = (size * LINE_H * state.scale) + 'px';
     txt.style.padding = (PAD * state.scale) + 'px';
@@ -251,7 +279,7 @@ function renderOverlays() {
     const num = document.createElement('span');
     num.className = 'num'; num.textContent = state.edits.indexOf(e) + 1;
     d.appendChild(num);
-    if (e.id === state.selectedId && state.mode === 'edit') {
+    if (e.id === state.selectedId) {
       for (const pos of ['nw', 'ne', 'sw', 'se']) {
         const h = document.createElement('div');
         h.className = 'handle ' + pos; h.dataset.handle = pos; h.dataset.id = e.id;
@@ -321,7 +349,7 @@ function setupEditInteractions() {
   let drag = null;
 
   ov.addEventListener('pointerdown', (ev) => {
-    if (state.mode !== 'edit') return;
+    if (state.mode === 'draw') return;
     const handle = ev.target.dataset && ev.target.dataset.handle;
     const rectEl = ev.target.closest ? ev.target.closest('.edit-rect') : null;
     if (!rectEl) return;
@@ -373,7 +401,7 @@ function setupEditInteractions() {
 function selectEdit(id) {
   state.selectedId = id;
   state.pending = null;
-  if (state.mode !== 'edit') setMode('edit', false);
+  if (state.mode !== 'edit') setMode('edit');
   openPanelForTarget();
   renderWys(); renderOverlays(); updateEditList();
 }
@@ -399,6 +427,10 @@ function openPanelForTarget() {
   $('fillMode').value = t ? t.fillMode : state.lastProps.fillMode;
   $('fillColor').value = t ? t.fillColor : state.lastProps.fillColor;
   $('fillColor').hidden = $('fillMode').value !== 'custom';
+  const famId = t ? (t.font || 'sarabun') : state.lastProps.font;
+  $('fontFamily').value = famId;
+  const fam = famById(famId);
+  setStyleUI(!!(t ? t.bold : state.lastProps.bold), !!(t ? t.italic : state.lastProps.italic), fam);
   $('addEditBtn').disabled = !hasPending;
   $('selectedRow').hidden = !t;
   $('addEditBtn').hidden = !hasPending;
@@ -409,6 +441,15 @@ function openPanelForTarget() {
 }
 function setAlignUI(a) {
   document.querySelectorAll('#alignSeg button').forEach((b) => b.classList.toggle('on', b.dataset.align === a));
+}
+function setStyleUI(bold, italic, fam) {
+  document.querySelectorAll('#styleSeg button').forEach((b) => {
+    if (b.dataset.style === 'bold') b.classList.toggle('on', bold);
+    else b.classList.toggle('on', italic);
+  });
+  // ปิดตัวเอียงถ้าฟอนต์นั้นไม่มี
+  const italicBtn = document.querySelector('#styleSeg button[data-style="italic"]');
+  if (italicBtn) { italicBtn.disabled = !!(fam && !fam.v.italic); italicBtn.title = (fam && !fam.v.italic) ? 'ฟอนต์นี้ไม่มีตัวเอียง' : 'ตัวเอียง'; }
 }
 
 /* ---------------- apply property changes ---------------- */
@@ -613,7 +654,7 @@ async function savePdf() {
     const { PDFDocument, rgb, degrees } = state.pdfDocLib;
     const doc = await PDFDocument.load(state.bytes);
     doc.registerFontkit(window.fontkit);
-    const font = await loadFont();
+    const fontCache = {};
 
     // 1) หมุนหน้า (ตามเลขหน้าเดิม)
     const pages = doc.getPages();
@@ -633,7 +674,10 @@ async function savePdf() {
       if (e.fillMode !== 'none') {
         pg.drawRectangle({ x: e.x, y: e.y, w: e.w, h: e.h, color: rgb(fc[0], fc[1], fc[2]) });
       }
-      const size = fitSize(e.text, e.w, e.h, e.size);
+      const fam = famById(e.font);
+      const vk = variantKey(fam, e.bold, e.italic);
+      const font = await embedVariant(doc, fontCache, fam.id, vk);
+      const size = fitSize(e.text, e.w, e.h, e.size, (line, s) => font.widthOfTextAtSize(line, s));
       const tc = hexToRgb01(e.color);
       const lines = e.text.split('\n');
       let yy = e.y + e.h - PAD - size * 0.9;
@@ -708,9 +752,9 @@ function setMode(m, updateRadio) {
   document.body.dataset.mode = m;
   if (updateRadio !== false) document.querySelectorAll('input[name="mode"]').forEach((r) => r.checked = r.value === m);
   const hints = {
-    find: 'คลิกที่ข้อความบนหน้าเพื่อเลือกกล่อง แล้วพิมพ์ข้อความใหม่',
-    draw: 'ลากเมาส์บนหน้าเพื่อวาดกรอบ แล้วพิมพ์ข้อความใหม่',
-    edit: 'คลิกกล่องสีส้มเพื่อเลือก • ลากเพื่อย้าย • ลากจุดมุมเพื่อปรับขนาด'
+    find: 'คลิกที่ข้อความบนหน้าเพื่อเลือกกล่อง แล้วพิมพ์ข้อความใหม่ (กล่องสีส้มเดิม: ลากย้าย/ลากมุมปรับขนาดได้เลย)',
+    draw: 'ลากเมาส์บนหน้าเพื่อวาดกรอบ แล้วพิมพ์ข้อความใหม่ (กล่องสีส้มเดิม: ลากย้าย/ลากมุมปรับขนาดได้เลย)',
+    edit: 'คลิกกล่องสีส้มเพื่อเลือก • ลากเพื่อย้าย • ลากจุดมุมเพื่อปรับขนาด • ปรับฟอนต์/ตัวหนาได้ในแผงซ้าย'
   };
   $('modeHint').textContent = hints[m] || '';
   if (m !== 'find') $('searchInfo').textContent = '';
@@ -788,6 +832,19 @@ function wire() {
   $('sizeRange').addEventListener('input', (e) => onSize(e.target.value));
   $('sizeNum').addEventListener('input', (e) => onSize(e.target.value));
   document.querySelectorAll('#alignSeg button').forEach((b) => b.addEventListener('click', () => { setAlignUI(b.dataset.align); applyProps({ align: b.dataset.align }); }));
+  $('fontFamily').addEventListener('change', (e) => {
+    const fam = famById(e.target.value);
+    applyProps({ font: fam.id });
+    if (!fam.v.italic) applyProps({ italic: false });
+    setStyleUI(!!(getTarget() ? getTarget().bold : state.lastProps.bold), !!(getTarget() ? getTarget().italic : state.lastProps.italic), fam);
+  });
+  document.querySelectorAll('#styleSeg button').forEach((b) => b.addEventListener('click', () => {
+    if (b.disabled) return;
+    const key = b.dataset.style;
+    const cur = getTarget() ? !!getTarget()[key] : !!state.lastProps[key];
+    applyProps({ [key]: !cur });
+    openPanelForTarget();
+  }));
   $('textColor').addEventListener('input', (e) => applyProps({ color: e.target.value }));
   $('fillMode').addEventListener('change', (e) => { $('fillColor').hidden = e.target.value !== 'custom'; applyProps({ fillMode: e.target.value }); });
   $('fillColor').addEventListener('input', (e) => applyProps({ fillColor: e.target.value }));
@@ -814,7 +871,8 @@ function wire() {
 /* ---------------- init ---------------- */
 (async function init() {
   state.pdfDocLib = PDFLib;
-  injectFontFace();
+  injectFontFaces();
+  try { const sel = $('fontFamily'); sel.innerHTML = ''; fonts().forEach((f) => { const o = document.createElement('option'); o.value = f.id; o.textContent = f.label || f.id; sel.appendChild(o); }); sel.value = state.lastProps.font; } catch (e) { console.warn('fontSelect', e); }
   wire();
   setMode('find');
   checkRestore();

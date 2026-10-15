@@ -5,7 +5,7 @@
 <script src="lib/pdf.min.js"></script>
 <script src="lib/fontkit.umd.min.js"></script>
 <script src="lib/pdf-lib.min.js"></script>
-<script src="lib/sarabun-font.js"></script>
+<script src="lib/fonts.js"></script>
 <script>
 (async () => {
   const r = { protocol: location.protocol, pdfjsVer: (typeof pdfjsLib !== 'undefined') };
@@ -40,7 +40,8 @@
   // 4) @font-face inject + CSS font ready (WYSIWYG preview)
   try {
     const st = document.createElement('style');
-    st.textContent = `@font-face{font-family:'SarabunEmb';src:url(data:font/ttf;base64,${SARABUN_B64}) format('truetype');}`;
+    const b64 = (window.PQE_FONTS && window.PQE_FONTS[0] && window.PQE_FONTS[0].v.normal) || window.SARABUN_B64;
+    st.textContent = `@font-face{font-family:'SarabunEmb';src:url(data:font/ttf;base64,${b64}) format('truetype');}`;
     document.head.appendChild(st);
     await document.fonts.load('16px SarabunEmb');
     r.previewFont = document.fonts.check('16px SarabunEmb') ? 'OK' : 'NOT-READY';
